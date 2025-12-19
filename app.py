@@ -1,9 +1,22 @@
 
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
+# HYBRID CONNECTION LOGIC
+try:
+    from streamlit_gsheets import GSheetsConnection
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    mode = "cloud"
+except Exception:
+    import sqlite3
+    conn = sqlite3.connect('power_sculpt_v2.db', check_same_thread=False)
+    mode = "local"
+    st.sidebar.warning("⚠️ Running in Local Mode (GSheets disconnected)")
+
+# Now your app won't crash!
+st.title("Power-Sculpt Tracker")
+st.caption(f"Storage Mode: {mode}")
 # --- 1. PAGE SETUP ---
 st.set_page_config(page_title="Power-Sculpt Pro", page_icon="🍑")
 
@@ -151,5 +164,6 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+
 
 

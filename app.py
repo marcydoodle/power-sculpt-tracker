@@ -1,18 +1,34 @@
 
+import sys
+import os
+
+# This forces the app to look in its own virtual environment folder
+import site
+site.addsitedir(site.getsitepackages()[0])
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# HYBRID CONNECTION LOGIC
+# Now try the import
 try:
     from streamlit_gsheets import GSheetsConnection
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    mode = "cloud"
-except Exception:
+    HAS_GSHEETS = True
+except (ImportError, ModuleNotFoundError):
+    HAS_GSHEETS = False
+
+# Debug info for you - this will show in the app
+if not HAS_GSHEETS:
+    st.sidebar.error("🔌 GSheets Library not found. Using local storage.")
     import sqlite3
-    conn = sqlite3.connect('power_sculpt_v2.db', check_same_thread=False)
-    mode = "local"
-    st.sidebar.warning("⚠️ Running in Local Mode (GSheets disconnected)")
+    conn = sqlite3.connect('workout_data.db', check_same_thread=False)
+    # Basic table setup
+    conn.execute('CREATE TABLE IF NOT EXISTS logs (date TEXT, exercise TEXT, weight REAL, reps INT, rpe REAL)')
+else:
+    st.sidebar.success("✅ GSheets Connected")
+    conn = st.connection("gsheets", type=GSheetsConnection)
+
+
 
 # Now your app won't crash!
 st.title("Power-Sculpt Tracker")
@@ -164,6 +180,7 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+
 
 
 

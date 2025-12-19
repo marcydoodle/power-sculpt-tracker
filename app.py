@@ -22,13 +22,13 @@ except Exception:
 
 if "Local" in db_mode:
     local_conn.execute('CREATE TABLE IF NOT EXISTS logs (date TEXT, exercise TEXT, weight REAL, reps INT, rpe REAL)')
+    local_conn.execute('CREATE TABLE IF NOT EXISTS silhouette (date TEXT, waist REAL, hips REAL, body_weight REAL)')
 
-# --- 3. PROGRAM LOGIC (16-WEEK PERIODIZATION) ---
+# --- 3. PROGRAM LOGIC ---
 start_date = datetime(2025, 12, 19) 
 days_in = (datetime.now() - start_date).days
 week_num = max(1, (days_in // 7) + 1)
 
-# Logic for dynamic Phase, Sets, and Reps
 if week_num <= 4:
     phase_name, set_goal, rep_range = "Phase 1: Hypertrophy", 3, "10-12 Reps"
 elif week_num <= 12:
@@ -62,18 +62,14 @@ def get_target_weight(ex):
 st.sidebar.title("🍑 Power-Sculpt")
 st.sidebar.metric("Week", f"{week_num}/16")
 st.sidebar.caption(f"Storage: {db_mode}")
-menu = st.sidebar.radio("Navigation", ["Today's Lift", "Roadmap", "Analytics"])
+menu = st.sidebar.radio("Navigation", ["Today's Lift", "Silhouette Tracker", "Roadmap", "Analytics"])
 
 # --- 6. PAGE: TODAY'S LIFT ---
 if menu == "Today's Lift":
     st.title(f"🏋️ {day_name} Session")
+    st.info(f"**{phase_name}** | {set_goal} Sets x {rep_range}")
     
-    # Restored Phase and Goal display
-    st.info(f"**Current Goal:** {phase_name}  \n**Volume:** {set_goal} Sets x {rep_range}")
-    
-    # SUBSTITUTION LOGIC
     use_sub = st.toggle("🔄 Substitute / Add New Exercise")
-    
     if use_sub:
         selected_move = st.text_input("Type Exercise Name", placeholder="e.g. Leg Press")
     else:
@@ -82,18 +78,13 @@ if menu == "Today's Lift":
 
     if selected_move and selected_move != "Rest Day":
         target_w = get_target_weight(selected_move)
-        
-        # Display the targets clearly before the form
-        c_t1, c_t2 = st.columns(2)
-        c_t1.metric("Target Weight", f"{target_w} lbs")
-        c_t2.metric("Target Reps", rep_range)
+        st.metric("Target", f"{target_w} lbs @ {rep_range}")
 
         with st.form("log_set", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
-            w_in = c1.number_input("Weight (Lbs)", value=float(target_w), step=2.5)
-            r_in = c2.number_input("Reps Performed", value=10, step=1)
-            rpe_in = c3.select_slider("RPE (Intensity)", options=[6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10], value=8.0)
-            
+            w_in = c1.number_input("Lbs", value=float(target_w), step=2.5)
+            r_in = c2.number_input("Reps", value=10, step=1)
+            rpe_in = c3.select_slider("RPE", options=[6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10], value=8.0)
             if st.form_submit_button("Record Set"):
                 date_str = datetime.now().strftime("%Y-%m-%d")
                 if "Cloud" in db_mode:
@@ -103,30 +94,51 @@ if menu == "Today's Lift":
                 else:
                     local_conn.execute("INSERT INTO logs VALUES (?,?,?,?,?)", (date_str, selected_move, w_in, r_in, rpe_in))
                     local_conn.commit()
-                st.success(f"Set Recorded: {selected_move} at {w_in} lbs")
-                st.balloons()
-    elif selected_move == "Rest Day":
-        st.write("🧘 **Rest Day.** Focus on recovery!")
+                st.success(f"Logged {selected_move}!")
 
-# --- 7. PAGE: ROADMAP ---
+# --- 7. NEW PAGE: SILHOUETTE TRACKER ---
+elif menu == "Silhouette Tracker":
+    st.title("📏 Silhouette Tracking")
+    st.write("Track your measurements to see your body composition change.")
+    
+    with st.form("silhouette_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        wst = c1.number_input("Waist (in)", value=28.0, step=0.1)
+        hp = c2.number_input("Hips (in)", value=38.0, step=0.1)
+        bw = c3.number_input("Body Weight (lbs)", value=140.0, step=0.1)
+        
+        if st.form_submit_button("Save Measurements"):
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            if "Cloud" in db_mode:
+                existing = conn.read(worksheet="silhouette", ttl=0)
+                new_row = pd.DataFrame([[date_str, wst, hp, bw]], columns=['date','waist','hips','body_weight'])
+                conn.update(worksheet="silhouette", data=pd.concat([existing, new_row], ignore_index=True))
+            else:
+                local_conn.execute("INSERT INTO silhouette VALUES (?,?,?,?)", (date_str, wst, hp, bw))
+                local_conn.commit()
+            st.success("Measurements saved!")
+
+    st.subheader("Progress History")
+    df_s = conn.read(worksheet="silhouette", ttl=0) if "Cloud" in db_mode else pd.read_sql("SELECT * FROM silhouette", local_conn)
+    if not df_s.empty:
+        st.line_chart(df_s.set_index('date')[['waist', 'hips', 'body_weight']])
+        st.dataframe(df_s.sort_index(ascending=False))
+
+# --- 8. PAGE: ROADMAP ---
 elif menu == "Roadmap":
-    st.title("🗓️ 16-Week Periodization")
-    st.write(f"You are in **{phase_name}**. Focus on: *{rep_range}*")
+    st.title("🗓️ 16-Week Journey")
     for day, moves in routines.items():
         with st.expander(f"**{day}**", expanded=(day == day_name)):
-            for m in moves:
-                st.write(f"🔹 **{m}**")
+            for m in moves: st.write(f"🔹 **{m}**")
 
-# --- 8. PAGE: ANALYTICS ---
+# --- 9. PAGE: ANALYTICS ---
 elif menu == "Analytics":
     st.title("📊 Training History")
     df = conn.read(worksheet="logs", ttl=0) if "Cloud" in db_mode else pd.read_sql("SELECT * FROM logs", local_conn)
     if not df.empty:
         st.line_chart(df, x='date', y='weight', color='exercise')
-        st.dataframe(df.sort_index(ascending=False), use_container_width=True)
+        st.dataframe(df.sort_index(ascending=False))
         if st.button("🗑️ Delete Last Entry"):
             if "Cloud" in db_mode: conn.update(worksheet="logs", data=df.iloc[:-1])
             else: local_conn.execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)"); local_conn.commit()
             st.rerun()
-        st.download_button("📥 Export CSV", df.to_csv(index=False), "workout_backup.csv")
-    else: st.info("No data yet. Crush it on Monday!")

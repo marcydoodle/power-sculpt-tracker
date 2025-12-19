@@ -63,30 +63,46 @@ routines = {
 # 5. PAGE: TODAY'S LIFT
 if menu == "Today's Lift":
     st.title(f"🏋️ {day_name} Session")
+    
+    # 1. Define the substitutions dictionary
+    subs = {
+        "Back Squat": ["Back Squat", "Hack Squat", "Leg Press", "Hack Squat"],
+        "Barbell Hip Thrust": ["Barbell Hip Thrust", "DB Hip Thrust", "Glute Bridge"],
+        "Deadlift": ["Deadlift", "Sumo Deadlift", "Trap Bar Deadlift", "DB RDL"],
+        "Bench Press": ["Bench Press", "DB Chest Press", "Incline DB Press"],
+        "Walking Lunge": ["Walking Lunge", "Split Squat", "Step Ups"],
+        "Barbell RDL": ["Barbell RDL", "DB RDL", "Cable Pull-through"]
+    }
+
     moves = routines.get(day_name, ["Rest Day"])
     
     if "Rest Day" in moves:
         st.write("Recovery day! Focus on steps and hydration.")
     else:
-        ex = st.selectbox("Current Movement", moves)
-        target_w = get_target(ex)
+        # 2. Select the scheduled movement
+        scheduled_move = st.selectbox("Scheduled Movement", moves)
         
-        st.metric(label="Target Weight", value=f"{target_w} lbs")
+        # 3. Check if we need to swap
+        if scheduled_move in subs:
+            ex = st.selectbox("Exercise (Select variant if swapping):", subs[scheduled_move])
+        else:
+            ex = scheduled_move # For accessories without subs like Ab Wheel
+            
+        target_w = get_target(ex)
+        st.metric(label=f"Target for {ex}", value=f"{target_w} lbs")
         
         with st.form("log_set", clear_on_submit=True):
             col1, col2 = st.columns(2)
             w_input = col1.number_input("Weight (lbs)", value=float(target_w), step=2.5)
             r_input = col2.number_input("Reps", value=8, step=1)
-            rpe_input = st.select_slider("RPE (How hard was it?)", 
-                                         options=[5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10])
+            rpe_input = st.select_slider("RPE", options=[5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10])
             
             if st.form_submit_button("Record Set"):
                 c = conn.cursor()
                 c.execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
                           (datetime.now().strftime("%Y-%m-%d"), ex, w_input, r_input, rpe_input))
                 conn.commit()
-                st.success(f"Success! Next week's target will update based on RPE {rpe_input}")
-
+                st.success(f"Logged {ex} at {w_input}lbs!")
 # 6. PAGE: SILHOUETTE
 elif menu == "Silhouette Tracker":
     st.title("⏳ Silhouette Tracker")
@@ -114,3 +130,4 @@ elif menu == "Analytics":
         
         st.subheader("Recent History")
         st.dataframe(df_logs.tail(10))
+

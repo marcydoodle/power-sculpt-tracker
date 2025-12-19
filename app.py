@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 # --- 1. PAGE SETUP ---
-st.set_page_config(page_title="Power-Sculpt Pro", page_icon="🍑", layout="centered")
+st.set_page_config(page_title="Power-Sculpt Pro", page_icon="🍑")
 
 # --- 2. DATABASE CONFIG ---
 def init_db():
@@ -19,21 +19,25 @@ def init_db():
 
 conn = init_db()
 
-# --- 3. PROGRESSION ENGINE ---
+# --- 3. PROGRESSION & PHASE LOGIC ---
+def get_phase_info():
+    start_date = datetime(2025, 12, 19)
+    days_in = (datetime.now() - start_date).days
+    week_num = max(1, (days_in // 7) + 1)
+    
+    if week_num <= 4:
+        return week_num, "Phase 1: Hypertrophy", "3 Sets x 10-12 Reps"
+    elif week_num <= 12:
+        return week_num, "Phase 2: Strength", "3 Sets x 6-8 Reps"
+    else:
+        return week_num, "Phase 3: Peaking", "4 Sets x 3-5 Reps"
+
 def get_target(exercise):
     query = f"SELECT weight, rpe FROM logs WHERE exercise='{exercise}' ORDER BY date DESC LIMIT 1"
     last_log = pd.read_sql(query, conn)
-    
-    defaults = {
-        'Back Squat': 160.0, 'Barbell Hip Thrust': 200.0, 
-        'Bench Press': 115.0, 'Deadlift': 210.0, 'Barbell RDL': 135.0
-    }
-    
-    if last_log.empty:
-        return defaults.get(exercise, 45.0)
-    
+    defaults = {'Back Squat': 160.0, 'Barbell Hip Thrust': 200.0, 'Bench Press': 115.0, 'Deadlift': 210.0, 'Barbell RDL': 135.0}
+    if last_log.empty: return defaults.get(exercise, 45.0)
     last_w, last_rpe = last_log.iloc[0]['weight'], last_log.iloc[0]['rpe']
-    
     if last_rpe <= 7.0: return last_w + 5.0
     elif last_rpe <= 9.0: return last_w + 2.5
     else: return last_w
@@ -49,85 +53,28 @@ routines = {
     "Saturday": ["Barbell Hip Thrust", "Deficit Rear Lunge", "Machine Hip Abduction"],
     "Sunday": ["Rest Day"]
 }
-
 subs = {
-    "Back Squat": ["Back Squat", "Goblet Squat", "Hack Squat"],
+    "Back Squat": ["Back Squat", "Goblet Squat", "Leg Press"],
     "Barbell Hip Thrust": ["Barbell Hip Thrust", "DB Hip Thrust", "Glute Bridge"],
-    "Deadlift": ["Deadlift", "Sumo Deadlift", "Trap Bar Deadlift", "DB RDL"],
-    "Bench Press": ["Bench Press", "DB Chest Press", "Incline DB Press"],
-    "Walking Lunge": ["Walking Lunge", "Split Squat", "Step Ups"],
-    "Barbell RDL": ["Barbell RDL", "DB RDL", "Cable Pull-through"]
+    "Deadlift": ["Deadlift", "Sumo Deadlift", "Trap Bar Deadlift"],
+    "Bench Press": ["Bench Press", "DB Chest Press"],
+    "Walking Lunge": ["Walking Lunge", "Split Squat", "Step Ups"]
 }
 
-# --- 4. NAVIGATION ---
+# --- 5. NAVIGATION ---
 st.sidebar.title("Power-Sculpt v2")
 menu = st.sidebar.radio("Navigation", ["Today's Lift", "Program Roadmap", "Silhouette Tracker", "Analytics"])
+week_num, phase_name, rep_goal = get_phase_info()
 
-# ... (keep your routines and subs dictionaries as they are) ...
-# --- NEW PAGE: PROGRAM ROADMAP ---
-if menu == "Program Roadmap":
-    st.title("🗓️ 16-Week Program Roadmap")
-    
-    # 1. Phase Logic
-    start_date = datetime(2025, 12, 19)
-    days_in = (datetime.now() - start_date).days
-    week_num = max(1, (days_in // 7) + 1)
-    
-    # Determine Rep Ranges based on Phase
-    if week_num <= 4:
-        phase_goal = "Phase 1: Hypertrophy & Form"
-        rep_range = "3 Sets x 10-12 Reps"
-    elif week_num <= 12:
-        phase_goal = "Phase 2: Strength Construction"
-        rep_range = "3 Sets x 6-8 Reps"
-    else:
-        phase_goal = "Phase 3: Peaking & Power"
-        rep_range = "4 Sets x 3-5 Reps"
-
-    st.subheader(f"📅 {phase_goal} (Week {week_num}/16)")
-    st.progress(min(week_num / 16, 1.0))
-    
-    # 2. Get All-Time Maxes for PR Stars
-    pr_query = "SELECT exercise, MAX(weight) as max_w FROM logs GROUP BY exercise"
-    df_prs = pd.read_sql(pr_query, conn)
-    pr_dict = dict(zip(df_prs['exercise'], df_prs['max_w']))
-
-    # 3. Display Weekly Split with Sets/Reps
-    st.write(f"Standard Volume for this phase: **{rep_range}**")
-    
-    col1, col2 = st.columns(2)
-    days = list(routines.keys())
-    
-    for i, day in enumerate(days):
-        with col1 if i % 2 == 0 else col2:
-            is_today = (day == day_name)
-            with st.expander(f"**{day}**", expanded=is_today):
-                moves = routines[day]
-                if "Rest Day" in moves:
-                    st.write("🧘 *Active Recovery*")
-                else:
-                    for m in moves:
-                        current_weight = get_target(m)
-                        all_time_max = pr_dict.get(m, 0)
-                        
-                        # Icon logic: PR Star or Standard Bullet
-                        icon = "🔥" if (all_time_max > 0 and current_weight >= all_time_max) else "🔹"
-                        
-                        st.write(f"{icon} **{m}**")
-                        st.caption(f"Target: {current_weight} lbs | {rep_range}")
-                        
-    st.markdown("---")
-    st.info("💡 Note: For 'Ab Wheel' and bodyweight moves, focus on maximum controlled reps.")
-# --- (The rest of your Today's Lift, Silhouette, and Analytics logic) ---
 # --- 6. PAGE: TODAY'S LIFT ---
 if menu == "Today's Lift":
     st.title(f"🏋️ {day_name} Session")
+    st.subheader(f"{phase_name} | Goal: {rep_goal}")
     
     moves = routines.get(day_name, ["Rest Day"])
     display_moves = moves + ["+ Add Extra Exercise"]
     scheduled_move = st.selectbox("Select Movement", display_moves)
     
-    # Custom vs Swap Logic
     if scheduled_move == "+ Add Extra Exercise":
         ex = st.text_input("Exercise Name:")
     elif scheduled_move in subs:
@@ -137,72 +84,65 @@ if menu == "Today's Lift":
 
     if ex and scheduled_move != "Rest Day":
         target_w = get_target(ex)
-        st.metric(label=f"Target Weight", value=f"{target_w} lbs")
+        
+        # Displaying Goals clearly
+        col_a, col_b = st.columns(2)
+        col_a.metric("Target Weight", f"{target_w} lbs")
+        col_b.metric("Rep Goal", rep_goal.split('x')[1].strip())
         
         with st.form("log_set", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            w_input = col1.number_input("Weight (lbs)", value=float(target_w), step=2.5)
-            r_input = col2.number_input("Reps", value=8, step=1)
-            rpe_input = st.select_slider("RPE", options=[5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10])
-            
+            c1, c2 = st.columns(2)
+            w_input = c1.number_input("Weight (lbs)", value=float(target_w), step=2.5)
+            r_input = c2.number_input("Reps", value=10, step=1)
+            rpe_input = st.select_slider("RPE", options=[5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10])
             if st.form_submit_button("Record Set"):
-                c = conn.cursor()
-                c.execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
-                          (datetime.now().strftime("%Y-%m-%d"), ex, w_input, r_input, rpe_input))
+                conn.cursor().execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
+                                      (datetime.now().strftime("%Y-%m-%d"), ex, w_input, r_input, rpe_input))
                 conn.commit()
                 st.toast(f"Logged {ex}!")
 
-    # --- LIVE SESSION SUMMARY & SET TRACKING ---
+    # Live Summary
     st.markdown("---")
     today_str = datetime.now().strftime("%Y-%m-%d")
-    # This pulls only the sets you've done TODAY for the selected exercise
-    session_data = pd.read_sql(f"SELECT weight, reps, rpe FROM logs WHERE date='{today_str}' AND exercise='{ex}'", conn)
-    
-    if not session_data.empty:
-        set_count = len(session_data)
-        st.subheader(f"✅ {ex} Progress: {set_count} Sets Done")
-        
-        # Displaying sets in a clean, numbered table
-        session_data.index = [f"Set {i+1}" for i in range(len(session_data))]
-        st.table(session_data) 
-        
-        # Volume calculation for that specific exercise
-        ex_vol = (session_data['weight'] * session_data['reps']).sum()
-        st.caption(f"Current {ex} Volume: {ex_vol:,.0f} lbs")
-    else:
-        st.info(f"Ready for Set 1 of {ex}?")
+    summary_df = pd.read_sql(f"SELECT exercise, weight, reps, rpe FROM logs WHERE date='{today_str}'", conn)
+    if not summary_df.empty:
+        st.dataframe(summary_df, use_container_width=True)
 
-# --- 7. PAGE: SILHOUETTE ---
+# --- 7. PAGE: PROGRAM ROADMAP ---
+elif menu == "Program Roadmap":
+    st.title("🗓️ 16-Week Roadmap")
+    st.markdown(f"### **Week {week_num} of 16**")
+    st.progress(week_num / 16)
+    st.info(f"**Current Target:** {rep_goal}")
+
+    days = list(routines.keys())
+    for i, day in enumerate(days):
+        is_today = (day == day_name)
+        with st.expander(f"**{day}**", expanded=is_today):
+            day_moves = routines[day]
+            if "Rest Day" in day_moves:
+                st.write("🧘 Active Recovery")
+            else:
+                for m in day_moves:
+                    # Boldly showing the Sets/Reps next to the name
+                    st.write(f"🔹 **{m}** — *{rep_goal}*")
+
+# --- 8. ANALYTICS & SILHOUETTE (Keeping same logic) ---
 elif menu == "Silhouette Tracker":
-    st.title("⏳ Silhouette Metrics")
+    st.title("⏳ Metrics")
     with st.form("sil_form"):
-        waist = st.number_input("Waist (inches)", step=0.1)
-        hips = st.number_input("Hips (inches)", step=0.1)
-        if st.form_submit_button("Save Measurements"):
-            c = conn.cursor()
-            c.execute("INSERT INTO silhouette VALUES (?,?,?,?,0)", (datetime.now().strftime("%Y-%m-%d"), waist, hips, 0))
+        waist = st.number_input("Waist (in)", step=0.1)
+        hips = st.number_input("Hips (in)", step=0.1)
+        if st.form_submit_button("Save"):
+            conn.cursor().execute("INSERT INTO silhouette VALUES (?,?,?,?,0)", (datetime.now().strftime("%Y-%m-%d"), waist, hips, 0))
             conn.commit()
-            st.success("Saved!")
 
-# --- 8. PAGE: ANALYTICS ---
 elif menu == "Analytics":
-    st.title("📊 Progress Insights")
+    st.title("📊 Progress")
     df_logs = pd.read_sql("SELECT * FROM logs", conn)
     if not df_logs.empty:
-        df_logs['e1rm'] = df_logs['weight'] * (1 + df_logs['reps'] / 30.0)
-        st.subheader("Strength Trend (e1RM)")
-        st.line_chart(df_logs, x='date', y='e1rm', color='exercise')
-        
-        st.subheader("History & Backup")
-        st.dataframe(df_logs)
-        csv = df_logs.to_csv(index=False).encode('utf-8')
-        st.download_button("Download CSV Backup", data=csv, file_name='training_data.csv')
-        
-        if st.button("🗑️ Delete Last Entry"):
+        st.line_chart(df_logs, x='date', y='weight', color='exercise')
+        if st.button("Delete Last Entry"):
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
-
-
-
-

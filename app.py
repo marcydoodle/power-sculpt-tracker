@@ -1,5 +1,6 @@
+
 import streamlit as st
-import sqlite3
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
@@ -150,4 +151,5 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+
 

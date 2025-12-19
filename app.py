@@ -1,82 +1,43 @@
-
-import sys
-import os
-
-# This forces the app to look in its own virtual environment folder
-import site
-site.addsitedir(site.getsitepackages()[0])
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import sqlite3
 
-# Now try the import
+# --- 1. APP CONFIG ---
+st.set_page_config(page_title="Power-Sculpt Pro", page_icon="🍑", layout="centered")
+
+# --- 2. DATABASE & CONNECTION SAFETY ---
+db_mode = "Local (Server)"
 try:
     from streamlit_gsheets import GSheetsConnection
-    HAS_GSHEETS = True
-except (ImportError, ModuleNotFoundError):
-    HAS_GSHEETS = False
-
-# Debug info for you - this will show in the app
-if not HAS_GSHEETS:
-    st.sidebar.error("🔌 GSheets Library not found. Using local storage.")
-    import sqlite3
-    conn = sqlite3.connect('workout_data.db', check_same_thread=False)
-    # Basic table setup
-    conn.execute('CREATE TABLE IF NOT EXISTS logs (date TEXT, exercise TEXT, weight REAL, reps INT, rpe REAL)')
-else:
-    st.sidebar.success("✅ GSheets Connected")
-    conn = st.connection("gsheets", type=GSheetsConnection)
-
-
-
-# Now your app won't crash!
-st.title("Power-Sculpt Tracker")
-st.caption(f"Storage Mode: {mode}")
-# --- 1. PAGE SETUP ---
-st.set_page_config(page_title="Power-Sculpt Pro", page_icon="🍑")
-
-import streamlit as st
-from streamlit_gsheets import GSheetsConnection
-
-# --- DATABASE CONFIG (Google Sheets Version) ---
-# Ensure you have set up the "Connections" in Streamlit Cloud Dashboard!
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-def get_all_data():
-    return conn.read(worksheet="logs", ttl="0")
-
-def save_log(new_row):
-    # Fetch existing data
-    existing_data = conn.read(worksheet="logs", ttl="0")
-    # Add new row
-    updated_df = pd.concat([existing_data, pd.DataFrame([new_row])], ignore_index=True)
-    # Write back to Google Sheets
-    conn.update(worksheet="logs", data=updated_df)
-# --- 3. PROGRESSION & PHASE LOGIC ---
-def get_phase_info():
-    start_date = datetime(2025, 12, 19)
-    days_in = (datetime.now() - start_date).days
-    week_num = max(1, (days_in // 7) + 1)
-    
-    if week_num <= 4:
-        return week_num, "Phase 1: Hypertrophy", "3 Sets x 10-12 Reps"
-    elif week_num <= 12:
-        return week_num, "Phase 2: Strength", "3 Sets x 6-8 Reps"
+    if "connections" in st.secrets:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        db_mode = "Cloud (Google Sheets)"
     else:
-        return week_num, "Phase 3: Peaking", "4 Sets x 3-5 Reps"
+        # Fallback to SQLite
+        local_conn = sqlite3.connect('workout_storage.db', check_same_thread=False)
+        db_mode = "Local (No Secrets)"
+except Exception:
+    local_conn = sqlite3.connect('workout_storage.db', check_same_thread=False)
+    db_mode = "Local (Fallback Mode)"
 
-def get_target(exercise):
-    query = f"SELECT weight, rpe FROM logs WHERE exercise='{exercise}' ORDER BY date DESC LIMIT 1"
-    last_log = pd.read_sql(query, conn)
-    defaults = {'Back Squat': 160.0, 'Barbell Hip Thrust': 200.0, 'Bench Press': 115.0, 'Deadlift': 210.0, 'Barbell RDL': 135.0}
-    if last_log.empty: return defaults.get(exercise, 45.0)
-    last_w, last_rpe = last_log.iloc[0]['weight'], last_log.iloc[0]['rpe']
-    if last_rpe <= 7.0: return last_w + 5.0
-    elif last_rpe <= 9.0: return last_w + 2.5
-    else: return last_w
+# Initialize Local Table if needed
+if "Local" in db_mode:
+    local_conn.execute('CREATE TABLE IF NOT EXISTS logs (date TEXT, exercise TEXT, weight REAL, reps INT, rpe REAL)')
 
-# --- 4. DATA & ROUTINES ---
+# --- 3. PROGRAM LOGIC (16-WEEK PERIODIZATION) ---
+start_date = datetime(2025, 12, 19)
+days_in = (datetime.now() - start_date).days
+week_num = max(1, (days_in // 7) + 1)
+
+if week_num <= 4:
+    phase_name, rep_goal = "Phase 1: Hypertrophy", "3 Sets x 10-12 Reps"
+elif week_num <= 12:
+    phase_name, rep_goal = "Phase 2: Strength", "3 Sets x 6-8 Reps"
+else:
+    phase_name, rep_goal = "Phase 3: Peaking", "4 Sets x 3-5 Reps"
+
+# --- 4. ROUTINES & TARGETS ---
 day_name = datetime.now().strftime("%A")
 routines = {
     "Monday": ["Back Squat", "Barbell Hip Thrust", "Barbell RDL", "Ab Wheel"],
@@ -87,100 +48,106 @@ routines = {
     "Saturday": ["Barbell Hip Thrust", "Deficit Rear Lunge", "Machine Hip Abduction"],
     "Sunday": ["Rest Day"]
 }
-subs = {
-    "Back Squat": ["Back Squat", "Goblet Squat", "Leg Press"],
-    "Barbell Hip Thrust": ["Barbell Hip Thrust", "DB Hip Thrust", "Glute Bridge"],
-    "Deadlift": ["Deadlift", "Sumo Deadlift", "Trap Bar Deadlift"],
-    "Bench Press": ["Bench Press", "DB Chest Press"],
-    "Walking Lunge": ["Walking Lunge", "Split Squat", "Step Ups"]
-}
 
-# --- 5. NAVIGATION ---
-st.sidebar.title("Power-Sculpt v2")
-menu = st.sidebar.radio("Navigation", ["Today's Lift", "Program Roadmap", "Silhouette Tracker", "Analytics"])
-week_num, phase_name, rep_goal = get_phase_info()
+def get_target_weight(ex):
+    # Default starting weights
+    defaults = {'Back Squat': 160.0, 'Barbell Hip Thrust': 200.0, 'Bench Press': 115.0, 'Deadlift': 210.0}
+    try:
+        if "Cloud" in db_mode:
+            df = conn.read(worksheet="logs", ttl=0)
+        else:
+            df = pd.read_sql("SELECT * FROM logs", local_conn)
+        
+        last_log = df[df['exercise'] == ex].tail(1)
+        if last_log.empty: return defaults.get(ex, 45.0)
+        
+        weight = float(last_log.iloc[0]['weight'])
+        rpe = float(last_log.iloc[0]['rpe'])
+        # Progression Logic
+        if rpe <= 7.0: return weight + 5.0
+        elif rpe <= 9.0: return weight + 2.5
+        return weight
+    except:
+        return defaults.get(ex, 45.0)
+
+# --- 5. SIDEBAR ---
+st.sidebar.title("🍑 Power-Sculpt")
+st.sidebar.metric("Week", f"{week_num}/16")
+st.sidebar.caption(f"Status: {db_mode}")
+menu = st.sidebar.radio("Navigation", ["Today's Lift", "Program Roadmap", "Analytics"])
 
 # --- 6. PAGE: TODAY'S LIFT ---
 if menu == "Today's Lift":
     st.title(f"🏋️ {day_name} Session")
-    st.subheader(f"{phase_name} | Goal: {rep_goal}")
+    st.info(f"**{phase_name}** | Goal: **{rep_goal}**")
     
     moves = routines.get(day_name, ["Rest Day"])
-    display_moves = moves + ["+ Add Extra Exercise"]
-    scheduled_move = st.selectbox("Select Movement", display_moves)
-    
-    if scheduled_move == "+ Add Extra Exercise":
-        ex = st.text_input("Exercise Name:")
-    elif scheduled_move in subs:
-        ex = st.selectbox("Exercise Variant:", subs[scheduled_move])
+    if "Rest Day" in moves:
+        st.write("🧘 **It's a Rest Day!** Focus on mobility and recovery.")
     else:
-        ex = scheduled_move
+        selected_move = st.selectbox("Select Exercise", moves)
+        target_w = get_target_weight(selected_move)
+        
+        col_m1, col_m2 = st.columns(2)
+        col_m1.metric("Target Weight", f"{target_w} lbs")
+        col_m2.metric("Target Reps", rep_goal.split('x')[1].strip())
 
-    if ex and scheduled_move != "Rest Day":
-        target_w = get_target(ex)
-        
-        # Displaying Goals clearly
-        col_a, col_b = st.columns(2)
-        col_a.metric("Target Weight", f"{target_w} lbs")
-        col_b.metric("Rep Goal", rep_goal.split('x')[1].strip())
-        
         with st.form("log_set", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            w_input = c1.number_input("Weight (lbs)", value=float(target_w), step=2.5)
-            r_input = c2.number_input("Reps", value=10, step=1)
-            rpe_input = st.select_slider("RPE", options=[5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10])
+            c1, c2, c3 = st.columns(3)
+            w_in = c1.number_input("Weight", value=float(target_w), step=2.5)
+            r_in = c2.number_input("Reps", value=10, step=1)
+            rpe_in = c3.select_slider("RPE", options=[6, 7, 7.5, 8, 8.5, 9, 9.5, 10], value=8.0)
+            
             if st.form_submit_button("Record Set"):
-                conn.cursor().execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
-                                      (datetime.now().strftime("%Y-%m-%d"), ex, w_input, r_input, rpe_input))
-                conn.commit()
-                st.toast(f"Logged {ex}!")
-
-    # Live Summary
-    st.markdown("---")
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    summary_df = pd.read_sql(f"SELECT exercise, weight, reps, rpe FROM logs WHERE date='{today_str}'", conn)
-    if not summary_df.empty:
-        st.dataframe(summary_df, use_container_width=True)
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                if "Cloud" in db_mode:
+                    existing = conn.read(worksheet="logs", ttl=0)
+                    new_row = pd.DataFrame([[date_str, selected_move, w_in, r_in, rpe_in]], columns=['date','exercise','weight','reps','rpe'])
+                    updated = pd.concat([existing, new_row], ignore_index=True)
+                    conn.update(worksheet="logs", data=updated)
+                else:
+                    local_conn.execute("INSERT INTO logs VALUES (?,?,?,?,?)", (date_str, selected_move, w_in, r_in, rpe_in))
+                    local_conn.commit()
+                st.success(f"Successfully Logged {selected_move}!")
+                st.balloons()
 
 # --- 7. PAGE: PROGRAM ROADMAP ---
 elif menu == "Program Roadmap":
-    st.title("🗓️ 16-Week Roadmap")
-    st.markdown(f"### **Week {week_num} of 16**")
-    st.progress(week_num / 16)
-    st.info(f"**Current Target:** {rep_goal}")
+    st.title("🗓️ Weekly Plan")
+    st.write(f"Targets for **{phase_name}**")
+    
+    # Get PRs for the Star Logic
+    try:
+        if "Cloud" in db_mode:
+            all_data = conn.read(worksheet="logs", ttl=0)
+        else:
+            all_data = pd.read_sql("SELECT * FROM logs", local_conn)
+        pr_dict = all_data.groupby('exercise')['weight'].max().to_dict()
+    except:
+        pr_dict = {}
 
-    days = list(routines.keys())
-    for i, day in enumerate(days):
+    for day, moves in routines.items():
         is_today = (day == day_name)
         with st.expander(f"**{day}**", expanded=is_today):
-            day_moves = routines[day]
-            if "Rest Day" in day_moves:
+            if "Rest Day" in moves:
                 st.write("🧘 Active Recovery")
             else:
-                for m in day_moves:
-                    # Boldly showing the Sets/Reps next to the name
-                    st.write(f"🔹 **{m}** — *{rep_goal}*")
+                for m in moves:
+                    target = get_target_weight(m)
+                    all_time_max = pr_dict.get(m, 0)
+                    icon = "🔥" if (all_time_max > 0 and target >= all_time_max) else "🔹"
+                    st.write(f"{icon} **{m}**: {target} lbs — *{rep_goal}*")
 
-# --- 8. ANALYTICS & SILHOUETTE (Keeping same logic) ---
-elif menu == "Silhouette Tracker":
-    st.title("⏳ Metrics")
-    with st.form("sil_form"):
-        waist = st.number_input("Waist (in)", step=0.1)
-        hips = st.number_input("Hips (in)", step=0.1)
-        if st.form_submit_button("Save"):
-            conn.cursor().execute("INSERT INTO silhouette VALUES (?,?,?,?,0)", (datetime.now().strftime("%Y-%m-%d"), waist, hips, 0))
-            conn.commit()
-
+# --- 8. PAGE: ANALYTICS ---
 elif menu == "Analytics":
-    st.title("📊 Progress")
-    df_logs = pd.read_sql("SELECT * FROM logs", conn)
-    if not df_logs.empty:
-        st.line_chart(df_logs, x='date', y='weight', color='exercise')
-        if st.button("Delete Last Entry"):
-            conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
-            conn.commit()
-            st.rerun()
-
-
-
-
+    st.title("📊 Progress Tracker")
+    try:
+        df = conn.read(worksheet="logs", ttl=0) if "Cloud" in db_mode else pd.read_sql("SELECT * FROM logs", local_conn)
+        if not df.empty:
+            st.line_chart(df, x='date', y='weight', color='exercise')
+            st.dataframe(df.sort_index(ascending=False), use_container_width=True)
+            st.download_button("📥 Download CSV Backup", df.to_csv(index=False), "workout_backup.csv")
+        else:
+            st.info("No data recorded yet.")
+    except Exception as e:
+        st.error(f"Could not load data: {e}")

@@ -64,35 +64,51 @@ st.sidebar.title("Power-Sculpt v2")
 menu = st.sidebar.radio("Navigation", ["Today's Lift", "Program Roadmap", "Silhouette Tracker", "Analytics"])
 
 # ... (keep your routines and subs dictionaries as they are) ...
-
 # --- NEW PAGE: PROGRAM ROADMAP ---
 if menu == "Program Roadmap":
     st.title("🗓️ 16-Week Program Roadmap")
-    st.write("Plan your week and stay consistent. Here is your current split:")
-
-    # Create a nice 2-column layout for the weekly view
-    col1, col2 = st.columns(2)
     
+    # 1. Phase Tracker (Calculated from a Dec 19, 2025 start date)
+    start_date = datetime(2025, 12, 19)
+    days_in = (datetime.now() - start_date).days
+    week_num = max(1, (days_in // 7) + 1)
+    
+    st.write(f"### **Week {week_num} of 16**")
+    st.progress(min(week_num / 16, 1.0))
+    
+    # 2. Get All-Time Maxes for the PR Stars
+    # This query finds the highest weight ever recorded for every exercise
+    pr_query = "SELECT exercise, MAX(weight) as max_w FROM logs GROUP BY exercise"
+    df_prs = pd.read_sql(pr_query, conn)
+    pr_dict = dict(zip(df_prs['exercise'], df_prs['max_w']))
+
+    # 3. Display the Weekly Split
+    st.write("Plan your week. Movements with a 🔥 are at your all-time heaviest!")
+    col1, col2 = st.columns(2)
     days = list(routines.keys())
     
     for i, day in enumerate(days):
         with col1 if i % 2 == 0 else col2:
-            with st.expander(f"**{day}**", expanded=(day == day_name)):
+            # Automatically expands today's workout
+            is_today = (day == day_name)
+            with st.expander(f"**{day}**", expanded=is_today):
                 moves = routines[day]
                 if "Rest Day" in moves:
-                    st.write("🧘 *Active Recovery / Rest*")
+                    st.write("🧘 *Active Recovery*")
                 else:
                     for m in moves:
-                        st.write(f"- {m}")
+                        # Check if this exercise has a PR recorded
+                        current_weight = get_target(m) # Gets most recent/target weight
+                        all_time_max = pr_dict.get(m, 0)
+                        
+                        if all_time_max > 0 and current_weight >= all_time_max:
+                            st.write(f"🔥 **{m}**")
+                        else:
+                            st.write(f"- {m}")
                         
     st.markdown("---")
     st.subheader("💡 Training Tips")
-    st.info("""
-    - **Progressive Overload:** If the app suggests a weight increase, try to hit it!
-    - **Substitutions:** Use the 'Today's Lift' tab if a machine is busy.
-    - **Recovery:** Ensure you are getting 7-8 hours of sleep for muscle repair.
-    """)
-
+    st.caption("The 🔥 symbol appears when your current target weight is equal to or higher than your previous best.")
 # --- (The rest of your Today's Lift, Silhouette, and Analytics logic) ---
 # --- 6. PAGE: TODAY'S LIFT ---
 if menu == "Today's Lift":
@@ -177,5 +193,6 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+
 
 

@@ -6,19 +6,23 @@ from datetime import datetime
 # --- 1. PAGE SETUP ---
 st.set_page_config(page_title="Power-Sculpt Pro", page_icon="🍑")
 
-# --- 2. DATABASE CONFIG ---
-def init_db():
-    conn = sqlite3.connect('power_sculpt_v2.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS logs 
-                 (date TEXT, exercise TEXT, weight REAL, reps INT, rpe REAL)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS silhouette 
-                 (date TEXT, waist REAL, hips REAL, thigh REAL, body_weight REAL)''')
-    conn.commit()
-    return conn
+import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
-conn = init_db()
+# --- DATABASE CONFIG (Google Sheets Version) ---
+# Ensure you have set up the "Connections" in Streamlit Cloud Dashboard!
+conn = st.connection("gsheets", type=GSheetsConnection)
 
+def get_all_data():
+    return conn.read(worksheet="logs", ttl="0")
+
+def save_log(new_row):
+    # Fetch existing data
+    existing_data = conn.read(worksheet="logs", ttl="0")
+    # Add new row
+    updated_df = pd.concat([existing_data, pd.DataFrame([new_row])], ignore_index=True)
+    # Write back to Google Sheets
+    conn.update(worksheet="logs", data=updated_df)
 # --- 3. PROGRESSION & PHASE LOGIC ---
 def get_phase_info():
     start_date = datetime(2025, 12, 19)
@@ -146,3 +150,4 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+

@@ -96,19 +96,25 @@ if menu == "Today's Lift":
                 conn.commit()
                 st.toast(f"Logged {ex}!")
 
-    # --- LIVE SESSION SUMMARY ---
+    # --- LIVE SESSION SUMMARY & SET TRACKING ---
     st.markdown("---")
-    st.subheader("📝 Session Summary")
     today_str = datetime.now().strftime("%Y-%m-%d")
-    summary_df = pd.read_sql(f"SELECT exercise, weight, reps, rpe FROM logs WHERE date='{today_str}'", conn)
+    # This pulls only the sets you've done TODAY for the selected exercise
+    session_data = pd.read_sql(f"SELECT weight, reps, rpe FROM logs WHERE date='{today_str}' AND exercise='{ex}'", conn)
     
-    if not summary_df.empty:
-        st.dataframe(summary_df, use_container_width=True)
-        # Calculate total volume for motivation
-        total_vol = (summary_df['weight'] * summary_df['reps']).sum()
-        st.caption(f"Total Work Volume Today: {total_vol:,.0f} lbs")
+    if not session_data.empty:
+        set_count = len(session_data)
+        st.subheader(f"✅ {ex} Progress: {set_count} Sets Done")
+        
+        # Displaying sets in a clean, numbered table
+        session_data.index = [f"Set {i+1}" for i in range(len(session_data))]
+        st.table(session_data) 
+        
+        # Volume calculation for that specific exercise
+        ex_vol = (session_data['weight'] * session_data['reps']).sum()
+        st.caption(f"Current {ex} Volume: {ex_vol:,.0f} lbs")
     else:
-        st.info("No sets logged yet for today.")
+        st.info(f"Ready for Set 1 of {ex}?")
 
 # --- 7. PAGE: SILHOUETTE ---
 elif menu == "Silhouette Tracker":
@@ -140,3 +146,4 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+

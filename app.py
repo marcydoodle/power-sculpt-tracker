@@ -139,15 +139,35 @@ elif menu == "Program Roadmap":
                     st.write(f"{icon} **{m}**: {target} lbs — *{rep_goal}*")
 
 # --- 8. PAGE: ANALYTICS ---
+# --- UPDATE IN ANALYTICS PAGE ---
 elif menu == "Analytics":
     st.title("📊 Progress Tracker")
-    try:
-        df = conn.read(worksheet="logs", ttl=0) if "Cloud" in db_mode else pd.read_sql("SELECT * FROM logs", local_conn)
-        if not df.empty:
-            st.line_chart(df, x='date', y='weight', color='exercise')
-            st.dataframe(df.sort_index(ascending=False), use_container_width=True)
-            st.download_button("📥 Download CSV Backup", df.to_csv(index=False), "workout_backup.csv")
-        else:
-            st.info("No data recorded yet.")
-    except Exception as e:
-        st.error(f"Could not load data: {e}")
+    
+    # 1. Load the Data
+    if "Cloud" in db_mode:
+        df = conn.read(worksheet="logs", ttl=0)
+    else:
+        df = pd.read_sql("SELECT * FROM logs", local_conn)
+
+    if not df.empty:
+        st.line_chart(df, x='date', y='weight', color='exercise')
+        st.dataframe(df.sort_index(ascending=False), use_container_width=True)
+        
+        # 2. DELETE BUTTON SECTION
+        st.markdown("---")
+        if st.button("🗑️ Delete Last Entry"):
+            if "Cloud" in db_mode:
+                # Remove the last row and update Sheets
+                updated_df = df.iloc[:-1]
+                conn.update(worksheet="logs", data=updated_df)
+            else:
+                # SQL command to delete the most recent row
+                local_conn.execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
+                local_conn.commit()
+            
+            st.warning("Last entry deleted.")
+            st.rerun() # Refresh page to show data is gone
+
+        st.download_button("📥 Download CSV Backup", df.to_csv(index=False), "workout_backup.csv")
+    else:
+        st.info("No data recorded yet.")

@@ -59,10 +59,41 @@ subs = {
     "Barbell RDL": ["Barbell RDL", "DB RDL", "Cable Pull-through"]
 }
 
-# --- 5. NAVIGATION ---
+# --- 4. NAVIGATION ---
 st.sidebar.title("Power-Sculpt v2")
-menu = st.sidebar.radio("Navigation", ["Today's Lift", "Silhouette Tracker", "Analytics"])
+menu = st.sidebar.radio("Navigation", ["Today's Lift", "Program Roadmap", "Silhouette Tracker", "Analytics"])
 
+# ... (keep your routines and subs dictionaries as they are) ...
+
+# --- NEW PAGE: PROGRAM ROADMAP ---
+if menu == "Program Roadmap":
+    st.title("🗓️ 16-Week Program Roadmap")
+    st.write("Plan your week and stay consistent. Here is your current split:")
+
+    # Create a nice 2-column layout for the weekly view
+    col1, col2 = st.columns(2)
+    
+    days = list(routines.keys())
+    
+    for i, day in enumerate(days):
+        with col1 if i % 2 == 0 else col2:
+            with st.expander(f"**{day}**", expanded=(day == day_name)):
+                moves = routines[day]
+                if "Rest Day" in moves:
+                    st.write("🧘 *Active Recovery / Rest*")
+                else:
+                    for m in moves:
+                        st.write(f"- {m}")
+                        
+    st.markdown("---")
+    st.subheader("💡 Training Tips")
+    st.info("""
+    - **Progressive Overload:** If the app suggests a weight increase, try to hit it!
+    - **Substitutions:** Use the 'Today's Lift' tab if a machine is busy.
+    - **Recovery:** Ensure you are getting 7-8 hours of sleep for muscle repair.
+    """)
+
+# --- (The rest of your Today's Lift, Silhouette, and Analytics logic) ---
 # --- 6. PAGE: TODAY'S LIFT ---
 if menu == "Today's Lift":
     st.title(f"🏋️ {day_name} Session")
@@ -146,4 +177,5 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+
 

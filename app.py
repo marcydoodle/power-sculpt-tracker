@@ -118,7 +118,24 @@ elif menu == "Silhouette Tracker":
 
 # 7. PAGE: ANALYTICS
 elif menu == "Analytics":
-    st.title("📊 Progress Data")
+    st.title("📊 Progress Data")   
+    df_logs = pd.read_sql("SELECT * FROM logs", conn)
+    if not df_logs.empty:
+        # Strength Chart
+        df_logs['e1rm'] = df_logs['weight'] * (1 + df_logs['reps'] / 30.0)
+        st.subheader("Strength Trend (e1RM)")
+        st.line_chart(df_logs, x='date', y='e1rm', color='exercise')
+        
+        # Backup Button
+        csv = df_logs.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Backup (CSV)", data=csv, file_name='my_training_data.csv')
+
+        # Undo Button
+        if st.button("🗑️ Delete Last Log Entry"):
+            c = conn.cursor()
+            c.execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
+            conn.commit()
+            st.warning("Last entry deleted. Refresh the page to update charts.")
     
     # Strength Chart
     df_logs = pd.read_sql("SELECT * FROM logs", conn)
@@ -130,4 +147,5 @@ elif menu == "Analytics":
         
         st.subheader("Recent History")
         st.dataframe(df_logs.tail(10))
+
 

@@ -68,28 +68,38 @@ menu = st.sidebar.radio("Navigation", ["Today's Lift", "Program Roadmap", "Silho
 if menu == "Program Roadmap":
     st.title("🗓️ 16-Week Program Roadmap")
     
-    # 1. Phase Tracker (Calculated from a Dec 19, 2025 start date)
+    # 1. Phase Logic
     start_date = datetime(2025, 12, 19)
     days_in = (datetime.now() - start_date).days
     week_num = max(1, (days_in // 7) + 1)
     
-    st.write(f"### **Week {week_num} of 16**")
+    # Determine Rep Ranges based on Phase
+    if week_num <= 4:
+        phase_goal = "Phase 1: Hypertrophy & Form"
+        rep_range = "3 Sets x 10-12 Reps"
+    elif week_num <= 12:
+        phase_goal = "Phase 2: Strength Construction"
+        rep_range = "3 Sets x 6-8 Reps"
+    else:
+        phase_goal = "Phase 3: Peaking & Power"
+        rep_range = "4 Sets x 3-5 Reps"
+
+    st.subheader(f"📅 {phase_goal} (Week {week_num}/16)")
     st.progress(min(week_num / 16, 1.0))
     
-    # 2. Get All-Time Maxes for the PR Stars
-    # This query finds the highest weight ever recorded for every exercise
+    # 2. Get All-Time Maxes for PR Stars
     pr_query = "SELECT exercise, MAX(weight) as max_w FROM logs GROUP BY exercise"
     df_prs = pd.read_sql(pr_query, conn)
     pr_dict = dict(zip(df_prs['exercise'], df_prs['max_w']))
 
-    # 3. Display the Weekly Split
-    st.write("Plan your week. Movements with a 🔥 are at your all-time heaviest!")
+    # 3. Display Weekly Split with Sets/Reps
+    st.write(f"Standard Volume for this phase: **{rep_range}**")
+    
     col1, col2 = st.columns(2)
     days = list(routines.keys())
     
     for i, day in enumerate(days):
         with col1 if i % 2 == 0 else col2:
-            # Automatically expands today's workout
             is_today = (day == day_name)
             with st.expander(f"**{day}**", expanded=is_today):
                 moves = routines[day]
@@ -97,18 +107,17 @@ if menu == "Program Roadmap":
                     st.write("🧘 *Active Recovery*")
                 else:
                     for m in moves:
-                        # Check if this exercise has a PR recorded
-                        current_weight = get_target(m) # Gets most recent/target weight
+                        current_weight = get_target(m)
                         all_time_max = pr_dict.get(m, 0)
                         
-                        if all_time_max > 0 and current_weight >= all_time_max:
-                            st.write(f"🔥 **{m}**")
-                        else:
-                            st.write(f"- {m}")
+                        # Icon logic: PR Star or Standard Bullet
+                        icon = "🔥" if (all_time_max > 0 and current_weight >= all_time_max) else "🔹"
+                        
+                        st.write(f"{icon} **{m}**")
+                        st.caption(f"Target: {current_weight} lbs | {rep_range}")
                         
     st.markdown("---")
-    st.subheader("💡 Training Tips")
-    st.caption("The 🔥 symbol appears when your current target weight is equal to or higher than your previous best.")
+    st.info("💡 Note: For 'Ab Wheel' and bodyweight moves, focus on maximum controlled reps.")
 # --- (The rest of your Today's Lift, Silhouette, and Analytics logic) ---
 # --- 6. PAGE: TODAY'S LIFT ---
 if menu == "Today's Lift":
@@ -193,6 +202,7 @@ elif menu == "Analytics":
             conn.cursor().execute("DELETE FROM logs WHERE rowid = (SELECT MAX(rowid) FROM logs)")
             conn.commit()
             st.rerun()
+
 
 
 
